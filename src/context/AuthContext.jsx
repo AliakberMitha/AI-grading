@@ -19,6 +19,14 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     mountedRef.current = true
     
+    // Check if supabase is configured
+    if (!supabase) {
+      console.error('Supabase client not initialized - missing env vars')
+      setAuthError('Supabase not configured. Check environment variables.')
+      setLoading(false)
+      return
+    }
+    
     // Prevent double initialization (React Strict Mode / HMR)
     if (initRef.current) return
     initRef.current = true

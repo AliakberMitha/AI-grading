@@ -196,14 +196,51 @@ export const gradeAnswerSheet = async (answerSheetId) => {
       .eq('subject_id', answerSheet.subject_id)
       .single()
 
+    const academicWeightage = academicLevel?.weightage || {}
+    const rawContentWeightage = Number(academicWeightage?.content)
+    const rawLanguageWeightage = Number(academicWeightage?.language)
+
+    let resolvedContentWeightage = Number.isFinite(rawContentWeightage) ? rawContentWeightage : null
+    let resolvedLanguageWeightage = Number.isFinite(rawLanguageWeightage) ? rawLanguageWeightage : null
+
+    if (resolvedContentWeightage === null && resolvedLanguageWeightage === null) {
+      resolvedContentWeightage = 60
+      resolvedLanguageWeightage = 40
+    } else if (resolvedContentWeightage === null) {
+      resolvedContentWeightage = Math.max(0, 100 - resolvedLanguageWeightage)
+    } else if (resolvedLanguageWeightage === null) {
+      resolvedLanguageWeightage = Math.max(0, 100 - resolvedContentWeightage)
+    }
+
+    const weightageSum = resolvedContentWeightage + resolvedLanguageWeightage
+    if (weightageSum <= 0) {
+      resolvedContentWeightage = 60
+      resolvedLanguageWeightage = 40
+    } else if (weightageSum !== 100) {
+      const normalizedContent = (resolvedContentWeightage / weightageSum) * 100
+      resolvedContentWeightage = Number(normalizedContent.toFixed(2))
+      resolvedLanguageWeightage = Number((100 - resolvedContentWeightage).toFixed(2))
+    }
+
+    const academicMaxMarks = Number(academicLevel?.max_marks)
+    const questionPaperMaxMarks = Number(answerSheet.question_papers?.total_marks)
+    const resolvedMaxMarks = Number.isFinite(academicMaxMarks) && academicMaxMarks > 0
+      ? academicMaxMarks
+      : (Number.isFinite(questionPaperMaxMarks) && questionPaperMaxMarks > 0 ? questionPaperMaxMarks : 100)
+
+    const strictnessRaw = Number(academicLevel?.strictness_level)
+    const resolvedStrictness = Number.isFinite(strictnessRaw)
+      ? Math.min(100, Math.max(0, strictnessRaw))
+      : 50
+
     const config = {
       questionPaperContent: answerSheet.question_papers?.instructions || '',
       answerSheetUrl: answerSheet.file_url,
-      maxMarks: answerSheet.question_papers?.total_marks || 100,
-      contentWeightage: academicLevel?.weightage?.content || 60,
-      languageWeightage: academicLevel?.weightage?.language || 40,
-      strictnessLevel: academicLevel?.strictness_level || 50,
-      gradingInstructions: academicLevel?.grading_instructions || ''
+      maxMarks: resolvedMaxMarks,
+      contentWeightage: resolvedContentWeightage,
+      languageWeightage: resolvedLanguageWeightage,
+      strictnessLevel: resolvedStrictness,
+      gradingInstructions: academicLevel?.grading_instructions ?? ''
     }
 
     // 4. Build prompt and call Gemini

@@ -3,12 +3,12 @@ import { supabase } from '../../lib/supabase'
 import Table from '../../components/common/Table'
 import Modal from '../../components/common/Modal'
 import FileUploader from '../../components/common/FileUploader'
-import { Plus, Pencil, Trash2, FileText, Search, Link2, RefreshCw, CheckCircle, XCircle, Clock, Loader2, Eye } from 'lucide-react'
+import { Plus, Pencil, Trash2, FileText, Search, Link2, RefreshCw, CheckCircle, XCircle, Clock, Loader2, Eye, Save } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '../../context/AuthContext'
 
 const QuestionPaperManagement = () => {
-  const { userProfile } = useAuth()
+  const { userProfile, isAdmin } = useAuth()
   const [papers, setPapers] = useState([])
   const [classes, setClasses] = useState([])
   const [subjects, setSubjects] = useState([])
@@ -20,6 +20,8 @@ const QuestionPaperManagement = () => {
   const [selectedFile, setSelectedFile] = useState(null)
   const [extractingId, setExtractingId] = useState(null)
   const [viewQuestionsModal, setViewQuestionsModal] = useState(null)
+  const [extractionDraft, setExtractionDraft] = useState(null)
+  const [savingExtraction, setSavingExtraction] = useState(false)
   const [formData, setFormData] = useState({
     title: '',
     class_id: '',
@@ -30,10 +32,74 @@ const QuestionPaperManagement = () => {
     is_active: true
   })
 
+  const cloneExtraction = (value) => {
+    if (!value) return value
+    const cloner = typeof globalThis.structuredClone === 'function' ? globalThis.structuredClone : null
+    if (cloner) {
+      try {
+        return cloner(value)
+      } catch (error) {
+        // fall through to JSON clone
+      }
+    }
+    return JSON.parse(JSON.stringify(value))
+  }
+
+  const isNonEmptyText = (value) => {
+    if (value === undefined || value === null) return false
+    const text = String(value).trim()
+    return text.length > 0
+  }
+
+  const getPreferredExpectedKey = (question) => {
+    if (question?.question_type === 'MCQ' || question?.question_type === 'Multiple Choice') return 'correct_answer'
+    if (Array.isArray(question?.options) && question.options.length > 0) return 'correct_answer'
+    return 'expected_answer'
+  }
+
+  const getExpectedField = (question) => {
+    if (!question || typeof question !== 'object') {
+      return { key: 'expected_answer', value: '' }
+    }
+
+    const candidates = [
+      { key: 'correct_answer', value: question.correct_answer },
+      { key: 'expected_answer', value: question.expected_answer },
+      // Backward/variant keys (in case older extractions used different names)
+      { key: 'expected', value: question.expected },
+      { key: 'answer', value: question.answer }
+    ]
+
+    const found = candidates.find((c) => Object.prototype.hasOwnProperty.call(question, c.key) && isNonEmptyText(c.value))
+    if (found) return { key: found.key, value: found.value }
+
+    const fallbackKey = getPreferredExpectedKey(question)
+    const fallbackValue = Object.prototype.hasOwnProperty.call(question, fallbackKey) ? question[fallbackKey] : ''
+    return { key: fallbackKey, value: fallbackValue ?? '' }
+  }
+
+  const extractOptionLetter = (value) => {
+    if (!isNonEmptyText(value)) return ''
+    const text = String(value).trim()
+    const match = text.match(/\b([A-D])\b/i) || text.match(/^\s*([A-D])\s*[).:-]?/i)
+    return match?.[1] ? match[1].toUpperCase() : ''
+  }
+
+  const canEditExtraction = isAdmin
+
   useEffect(() => {
     fetchLookups()
     fetchPapers()
   }, [])
+
+  useEffect(() => {
+    if (viewQuestionsModal?.extracted_questions) {
+      setExtractionDraft(cloneExtraction(viewQuestionsModal.extracted_questions))
+    } else {
+      setExtractionDraft(null)
+    }
+    setSavingExtraction(false)
+  }, [viewQuestionsModal])
 
   const fetchLookups = async () => {
     try {
@@ -244,6 +310,67 @@ const QuestionPaperManagement = () => {
     }
   }
 
+  const closeViewQuestions = () => {
+    setViewQuestionsModal(null)
+    setExtractionDraft(null)
+    setSavingExtraction(false)
+  }
+
+  const handleExpectedChange = (sectionIndex, questionIndex, value) => {
+    if (!canEditExtraction) return
+
+    setExtractionDraft((prev) => {
+      const source = prev
+        ? cloneExtraction(prev)
+        : (viewQuestionsModal?.extracted_questions ? cloneExtraction(viewQuestionsModal.extracted_questions) : null)
+
+      if (!source?.sections?.[sectionIndex]?.questions?.[questionIndex]) {
+        return source
+      }
+
+      const question = source.sections[sectionIndex].questions[questionIndex]
+      const targetKey = getExpectedField(question).key
+      question[targetKey] = value
+      return source
+    })
+  }
+
+  const handleSaveExtraction = async () => {
+    if (!canEditExtraction || !viewQuestionsModal?.id || !extractionDraft) {
+      return
+    }
+
+    try {
+      setSavingExtraction(true)
+      const updatedExtraction = cloneExtraction(extractionDraft)
+      const { error } = await supabase
+        .from('question_papers')
+        .update({ extracted_questions: updatedExtraction })
+        .eq('id', viewQuestionsModal.id)
+
+      if (error) throw error
+
+      setPapers((prev) =>
+        prev.map((paper) =>
+          paper.id === viewQuestionsModal.id
+            ? { ...paper, extracted_questions: updatedExtraction }
+            : paper
+        )
+      )
+
+      setViewQuestionsModal((prev) =>
+        prev ? { ...prev, extracted_questions: updatedExtraction } : prev
+      )
+
+      toast.success('Expected answers updated')
+    } catch (error) {
+      toast.error(error.message || 'Failed to update expected answers')
+      console.error(error)
+    } finally {
+      setSavingExtraction(false)
+    }
+  }
+
   // Extract questions from question paper using Edge Function
   const extractQuestions = async (paperId) => {
     setExtractingId(paperId)
@@ -325,6 +452,8 @@ const QuestionPaperManagement = () => {
     const subjectName = paper.subjects?.name?.toLowerCase() || ''
     return title.includes(term) || className.includes(term) || subjectName.includes(term)
   })
+
+  const extractionData = extractionDraft || viewQuestionsModal?.extracted_questions || null
 
   const columns = [
     {
@@ -581,116 +710,156 @@ const QuestionPaperManagement = () => {
       {/* View Questions Modal */}
       <Modal
         isOpen={!!viewQuestionsModal}
-        onClose={() => setViewQuestionsModal(null)}
-        title={`Extracted Questions - ${viewQuestionsModal?.title || ''}`}
+        onClose={closeViewQuestions}
+        title={`Extracted Questions - ${extractionData?.title || viewQuestionsModal?.title || ''}`}
         size="xl"
       >
-        {viewQuestionsModal?.extracted_questions && (
-          <div className="space-y-4 max-h-[70vh] overflow-y-auto">
-            {/* Paper Info */}
-            <div className="bg-blue-50 rounded-lg p-4">
-              <h3 className="font-semibold text-blue-800">
-                {viewQuestionsModal.extracted_questions.title || viewQuestionsModal.title}
-              </h3>
-              <div className="flex flex-wrap gap-4 mt-2 text-sm text-blue-600">
-                <span>Total Marks: {viewQuestionsModal.extracted_questions.total_marks || viewQuestionsModal.total_marks}</span>
-                {viewQuestionsModal.extracted_questions.duration && (
-                  <span>Duration: {viewQuestionsModal.extracted_questions.duration}</span>
+        {extractionData ? (
+          <>
+            <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+              <div className="bg-blue-50 rounded-lg p-4">
+                <h3 className="font-semibold text-blue-800">
+                  {extractionData.title || viewQuestionsModal?.title}
+                </h3>
+                <div className="flex flex-wrap gap-4 mt-2 text-sm text-blue-600">
+                  <span>Total Marks: {extractionData.total_marks ?? viewQuestionsModal?.total_marks}</span>
+                  {extractionData.duration && <span>Duration: {extractionData.duration}</span>}
+                </div>
+                {Array.isArray(extractionData.instructions) && extractionData.instructions.length > 0 && (
+                  <div className="mt-2 text-sm text-blue-700">
+                    <strong>Instructions:</strong>
+                    <ul className="list-disc list-inside mt-1">
+                      {extractionData.instructions.map((inst, i) => (
+                        <li key={i}>{inst}</li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
               </div>
-              {viewQuestionsModal.extracted_questions.instructions?.length > 0 && (
-                <div className="mt-2 text-sm text-blue-700">
-                  <strong>Instructions:</strong>
-                  <ul className="list-disc list-inside mt-1">
-                    {viewQuestionsModal.extracted_questions.instructions.map((inst, i) => (
-                      <li key={i}>{inst}</li>
+
+              {extractionData.sections?.map((section, sIdx) => (
+                <div key={sIdx} className="border rounded-lg overflow-hidden">
+                  <div className="bg-gray-100 px-4 py-3 border-b">
+                    <h4 className="font-semibold text-gray-800">
+                      Section {section.section}: {section.section_name || ''}
+                    </h4>
+                    <div className="flex gap-4 text-sm text-gray-600 mt-1">
+                      <span>Marks: {section.total_marks}</span>
+                      {section.attempt_required && (
+                        <span>Attempt: {section.attempt_required} questions</span>
+                      )}
+                    </div>
+                    {section.instructions && (
+                      <p className="text-sm text-gray-500 mt-1 italic">{section.instructions}</p>
+                    )}
+                  </div>
+                  <div className="divide-y">
+                    {section.questions?.map((q, qIdx) => {
+                      const expectedField = getExpectedField(q)
+                      const expectedKey = expectedField.key
+                      const expectedValue = expectedField.value ?? ''
+                      const optionKey = extractOptionLetter(expectedValue)
+
+                      return (
+                        <div key={qIdx} className="p-4 hover:bg-gray-50">
+                          <div className="flex justify-between items-start gap-4">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="font-medium text-gray-700">Q{q.question_number}.</span>
+                                <span className="px-2 py-0.5 bg-gray-200 rounded text-xs text-gray-600">
+                                  {q.question_type || 'Question'}
+                                </span>
+                                <span className="text-xs text-gray-500">[{q.marks} marks]</span>
+                              </div>
+                              <p className="text-gray-800 whitespace-pre-wrap">{q.question_text}</p>
+
+                              {Array.isArray(q.options) && q.options.length > 0 && (
+                                <div className="mt-2 ml-4 space-y-1">
+                                  {q.options.map((opt, oIdx) => {
+                                    const normalizedOption = opt != null ? opt.toString().trim().toUpperCase() : ''
+                                    const isCorrectOption = !!optionKey && (
+                                      normalizedOption.startsWith(optionKey) ||
+                                      normalizedOption.startsWith(`${optionKey})`) ||
+                                      normalizedOption.startsWith(`${optionKey}.`) ||
+                                      normalizedOption.startsWith(`${optionKey} `)
+                                    )
+                                    return (
+                                      <p
+                                        key={oIdx}
+                                        className={`text-sm ${isCorrectOption ? 'text-green-600 font-medium' : 'text-gray-600'}`}
+                                      >
+                                        {opt}
+                                      </p>
+                                    )
+                                  })}
+                                </div>
+                              )}
+
+                              {canEditExtraction ? (
+                                <div className="mt-3">
+                                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                                    Expected Answer
+                                  </label>
+                                  <textarea
+                                    value={expectedValue}
+                                    onChange={(e) => handleExpectedChange(sIdx, qIdx, e.target.value)}
+                                    rows={Math.min(6, Math.max(2, Math.ceil((expectedValue || '').length / 80)))}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                                    placeholder="Enter expected answer"
+                                  />
+                                </div>
+                              ) : (
+                                expectedValue && (
+                                  <div className="mt-2 p-2 bg-green-50 rounded text-sm">
+                                    <span className="font-medium text-green-700">Expected: </span>
+                                    <span className="text-green-800">{expectedValue}</span>
+                                  </div>
+                                )
+                              )}
+
+                              {q.or_question && (
+                                <div className="mt-3 p-3 bg-yellow-50 rounded border-l-4 border-yellow-400">
+                                  <p className="text-xs font-medium text-yellow-700 mb-1">OR</p>
+                                  <p className="text-gray-800">{q.or_question.question_text}</p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+
+              {Array.isArray(extractionData.extraction_notes) && extractionData.extraction_notes.length > 0 && (
+                <div className="bg-yellow-50 rounded-lg p-4">
+                  <h4 className="font-medium text-yellow-800 mb-2">Extraction Notes</h4>
+                  <ul className="list-disc list-inside text-sm text-yellow-700">
+                    {extractionData.extraction_notes.map((note, i) => (
+                      <li key={i}>{note}</li>
                     ))}
                   </ul>
                 </div>
               )}
             </div>
 
-            {/* Sections */}
-            {viewQuestionsModal.extracted_questions.sections?.map((section, sIdx) => (
-              <div key={sIdx} className="border rounded-lg overflow-hidden">
-                <div className="bg-gray-100 px-4 py-3 border-b">
-                  <h4 className="font-semibold text-gray-800">
-                    Section {section.section}: {section.section_name || ''}
-                  </h4>
-                  <div className="flex gap-4 text-sm text-gray-600 mt-1">
-                    <span>Marks: {section.total_marks}</span>
-                    {section.attempt_required && (
-                      <span>Attempt: {section.attempt_required} questions</span>
-                    )}
-                  </div>
-                  {section.instructions && (
-                    <p className="text-sm text-gray-500 mt-1 italic">{section.instructions}</p>
-                  )}
-                </div>
-                <div className="divide-y">
-                  {section.questions?.map((q, qIdx) => (
-                    <div key={qIdx} className="p-4 hover:bg-gray-50">
-                      <div className="flex justify-between items-start gap-4">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="font-medium text-gray-700">Q{q.question_number}.</span>
-                            <span className="px-2 py-0.5 bg-gray-200 rounded text-xs text-gray-600">
-                              {q.question_type || 'Question'}
-                            </span>
-                            <span className="text-xs text-gray-500">[{q.marks} marks]</span>
-                          </div>
-                          <p className="text-gray-800 whitespace-pre-wrap">{q.question_text}</p>
-                          
-                          {/* MCQ Options */}
-                          {q.options && q.options.length > 0 && (
-                            <div className="mt-2 ml-4 space-y-1">
-                              {q.options.map((opt, oIdx) => (
-                                <p key={oIdx} className={`text-sm ${
-                                  q.correct_answer && opt.includes(q.correct_answer.charAt(0)) 
-                                    ? 'text-green-600 font-medium' 
-                                    : 'text-gray-600'
-                                }`}>
-                                  {opt}
-                                </p>
-                              ))}
-                            </div>
-                          )}
-                          
-                          {/* Expected Answer */}
-                          {(q.correct_answer || q.expected_answer) && (
-                            <div className="mt-2 p-2 bg-green-50 rounded text-sm">
-                              <span className="font-medium text-green-700">Expected: </span>
-                              <span className="text-green-800">{q.correct_answer || q.expected_answer}</span>
-                            </div>
-                          )}
-
-                          {/* OR Question */}
-                          {q.or_question && (
-                            <div className="mt-3 p-3 bg-yellow-50 rounded border-l-4 border-yellow-400">
-                              <p className="text-xs font-medium text-yellow-700 mb-1">OR</p>
-                              <p className="text-gray-800">{q.or_question.question_text}</p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-
-            {/* Extraction Notes */}
-            {viewQuestionsModal.extracted_questions.extraction_notes?.length > 0 && (
-              <div className="bg-yellow-50 rounded-lg p-4">
-                <h4 className="font-medium text-yellow-800 mb-2">Extraction Notes</h4>
-                <ul className="list-disc list-inside text-sm text-yellow-700">
-                  {viewQuestionsModal.extracted_questions.extraction_notes.map((note, i) => (
-                    <li key={i}>{note}</li>
-                  ))}
-                </ul>
+            {canEditExtraction && extractionDraft && (
+              <div className="flex justify-end gap-3 pt-4 mt-4 border-t border-gray-200">
+                <button
+                  type="button"
+                  onClick={handleSaveExtraction}
+                  disabled={savingExtraction}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                >
+                  <Save size={16} />
+                  {savingExtraction ? 'Saving...' : 'Save Changes'}
+                </button>
               </div>
             )}
-          </div>
+          </>
+        ) : (
+          <p className="text-sm text-gray-500">No extracted questions available.</p>
         )}
       </Modal>
     </div>

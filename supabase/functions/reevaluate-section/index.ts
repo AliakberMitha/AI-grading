@@ -175,7 +175,7 @@ serve(async (req: Request) => {
     // Fetch answer sheet
     const { data: sheet, error: fetchErr } = await supabase
       .from('answer_sheets')
-      .select(`*, question_papers (id, title, total_marks, file_url, extracted_questions)`)
+      .select(`*, question_papers (id, title, total_marks, file_url, extracted_questions, class_id, subject_id)`)
       .eq('id', answer_sheet_id)
       .single()
 
@@ -195,19 +195,70 @@ serve(async (req: Request) => {
     }
 
     // Get academic settings
-    const { data: academic } = await supabase
+    const { data: primaryAcademic } = await supabase
       .from('academic_levels')
       .select('*')
       .eq('class_id', sheet.class_id)
       .eq('subject_id', sheet.subject_id)
       .maybeSingle()
 
+    let academic = primaryAcademic
+
+    if (!academic && qp?.class_id && qp?.subject_id && (qp.class_id !== sheet.class_id || qp.subject_id !== sheet.subject_id)) {
+      const { data: fallbackAcademic } = await supabase
+        .from('academic_levels')
+        .select('*')
+        .eq('class_id', qp.class_id)
+        .eq('subject_id', qp.subject_id)
+        .maybeSingle()
+
+      if (fallbackAcademic) {
+        academic = fallbackAcademic
+      }
+    }
+
+    const rawContentWeightage = Number(academic?.weightage?.content)
+    const rawLanguageWeightage = Number(academic?.weightage?.language)
+
+    let contentWeightage = Number.isFinite(rawContentWeightage) ? rawContentWeightage : null
+    let languageWeightage = Number.isFinite(rawLanguageWeightage) ? rawLanguageWeightage : null
+
+    if (contentWeightage === null && languageWeightage === null) {
+      contentWeightage = 60
+      languageWeightage = 40
+    } else if (contentWeightage === null) {
+      contentWeightage = Math.max(0, 100 - languageWeightage)
+    } else if (languageWeightage === null) {
+      languageWeightage = Math.max(0, 100 - contentWeightage)
+    }
+
+    const weightageSum = (contentWeightage ?? 0) + (languageWeightage ?? 0)
+    if (weightageSum <= 0) {
+      contentWeightage = 60
+      languageWeightage = 40
+    } else if (weightageSum !== 100) {
+      const normalizedContent = (contentWeightage / weightageSum) * 100
+      contentWeightage = Number(normalizedContent.toFixed(2))
+      languageWeightage = Number((100 - contentWeightage).toFixed(2))
+    }
+
+    const academicMaxMarks = Number(academic?.max_marks)
+    const questionPaperMaxMarks = Number(qp?.total_marks)
+    const maxMarks = Number.isFinite(academicMaxMarks) && academicMaxMarks > 0
+      ? academicMaxMarks
+      : (Number.isFinite(questionPaperMaxMarks) && questionPaperMaxMarks > 0 ? questionPaperMaxMarks : 100)
+
+    const strictnessRaw = Number(academic?.strictness_level)
+    const strictnessLevel = Number.isFinite(strictnessRaw)
+      ? Math.min(100, Math.max(0, strictnessRaw))
+      : 50
+
     const config = {
-      maxMarks: qp?.total_marks || 100,
-      contentWeightage: academic?.weightage?.content || 60,
-      languageWeightage: academic?.weightage?.language || 40,
-      strictnessLevel: academic?.strictness_level || 50,
-      gradingInstructions: academic?.grading_instructions || ''
+      maxMarks,
+      contentWeightage,
+      languageWeightage,
+      strictnessLevel,
+      gradingInstructions: academic?.grading_instructions ?? ''
     }
 
     // Build prompt for section re-evaluation

@@ -26,6 +26,7 @@ import AnswerSheetManagement from './pages/admin/AnswerSheetManagement'
 import ReevaluationLogs from './pages/admin/ReevaluationLogs'
 import UserDashboard from './pages/user/Dashboard'
 import UploadAnswerSheet from './pages/user/UploadAnswerSheet'
+import BulkUploadAnswerSheets from './pages/user/BulkUploadAnswerSheets'
 import GradingResults from './pages/user/GradingResults'
 import UserReports from './pages/user/Reports'
 
@@ -151,6 +152,7 @@ function AppRoutes() {
       >
         <Route index element={<UserDashboard />} />
         <Route path="upload" element={<UploadAnswerSheet />} />
+        <Route path="bulk-upload" element={<BulkUploadAnswerSheets />} />
         <Route path="results" element={<GradingResults />} />
         <Route path="reports" element={<UserReports />} />
       </Route>

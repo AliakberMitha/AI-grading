@@ -10,7 +10,7 @@ const AdminLayout = () => {
   const pageTitle = useMemo(() => {
     const titles = {
       '/admin': 'Admin Dashboard',
-      '/admin/users': 'User Management',
+      '/admin/users': 'Evaluator Management',
       '/admin/branches': 'Branch Management',
       '/admin/classes': 'Class Management',
       '/admin/subjects': 'Subject Management',

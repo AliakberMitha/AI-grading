@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 import Table from '../../components/common/Table'
 import Modal from '../../components/common/Modal'
+import PasswordConfirmModal from '../../components/common/PasswordConfirmModal'
 import {
   FileText,
   Search,
@@ -27,6 +28,8 @@ const AnswerSheetManagement = () => {
   const [selectedSheet, setSelectedSheet] = useState(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
+  const [isPasswordDeleteOpen, setIsPasswordDeleteOpen] = useState(false)
+  const [pendingDeleteSheet, setPendingDeleteSheet] = useState(null)
   const [sheetToDelete, setSheetToDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
   const [classes, setClasses] = useState([])
@@ -128,8 +131,8 @@ const AnswerSheetManagement = () => {
   }
 
   const confirmDelete = (sheet) => {
-    setSheetToDelete(sheet)
-    setIsDeleteModalOpen(true)
+    setPendingDeleteSheet(sheet)
+    setIsPasswordDeleteOpen(true)
   }
 
   const viewDetails = (sheet) => {
@@ -285,6 +288,23 @@ const AnswerSheetManagement = () => {
 
   return (
     <div className="space-y-6">
+      <PasswordConfirmModal
+        isOpen={isPasswordDeleteOpen}
+        title="Password Required"
+        message="Enter your password to delete this answer sheet."
+        confirmLabel="Verify & Continue"
+        onCancel={() => {
+          setIsPasswordDeleteOpen(false)
+          setPendingDeleteSheet(null)
+        }}
+        onVerified={async () => {
+          const sheet = pendingDeleteSheet
+          setIsPasswordDeleteOpen(false)
+          setPendingDeleteSheet(null)
+          setSheetToDelete(sheet)
+          setIsDeleteModalOpen(true)
+        }}
+      />
       {/* Header */}
       <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl p-6 text-white">
         <div className="flex items-center gap-3 mb-2">

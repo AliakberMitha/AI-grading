@@ -12,6 +12,7 @@ import {
   UserCog,
   FileText,
   Upload,
+  Files,
   BarChart3,
   ClipboardList,
   Shield,
@@ -26,7 +27,7 @@ const Sidebar = ({ isOpen, onClose }) => {
 
   const adminMenuItems = [
     { path: '/admin', icon: LayoutDashboard, label: 'Dashboard', exact: true },
-    { path: '/admin/users', icon: Users, label: 'User Management' },
+    { path: '/admin/users', icon: Users, label: 'Evaluator Management' },
     { path: '/admin/branches', icon: Building2, label: 'Branches' },
     { path: '/admin/classes', icon: School, label: 'Classes' },
     { path: '/admin/subjects', icon: BookOpen, label: 'Subjects' },
@@ -45,6 +46,7 @@ const Sidebar = ({ isOpen, onClose }) => {
   const userMenuItems = [
     { path: '/user', icon: LayoutDashboard, label: 'Dashboard', exact: true },
     { path: '/user/upload', icon: Upload, label: 'Upload Answer Sheets' },
+    { path: '/user/bulk-upload', icon: Files, label: 'Bulk Upload (Queue)' },
     { path: '/user/results', icon: ClipboardList, label: 'Grading Results' },
     { path: '/user/reports', icon: BarChart3, label: 'Status Reports' },
   ]

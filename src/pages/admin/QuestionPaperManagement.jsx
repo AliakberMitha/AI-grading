@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase'
 import Table from '../../components/common/Table'
 import Modal from '../../components/common/Modal'
 import FileUploader from '../../components/common/FileUploader'
+import PasswordConfirmModal from '../../components/common/PasswordConfirmModal'
 import { Plus, Pencil, Trash2, FileText, Search, Link2, RefreshCw, CheckCircle, XCircle, Clock, Loader2, Eye, Save } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '../../context/AuthContext'
@@ -22,6 +23,8 @@ const QuestionPaperManagement = () => {
   const [viewQuestionsModal, setViewQuestionsModal] = useState(null)
   const [extractionDraft, setExtractionDraft] = useState(null)
   const [savingExtraction, setSavingExtraction] = useState(false)
+  const [paperToDelete, setPaperToDelete] = useState(null)
+  const [isPasswordDeleteOpen, setIsPasswordDeleteOpen] = useState(false)
   const [formData, setFormData] = useState({
     title: '',
     class_id: '',
@@ -290,6 +293,13 @@ const QuestionPaperManagement = () => {
   }
 
   const handleDelete = async (paper) => {
+    setPaperToDelete(paper)
+    setIsPasswordDeleteOpen(true)
+  }
+
+  const executeDeletePaper = async (paper) => {
+    if (!paper) return
+
     if (!window.confirm('Delete this question paper?')) {
       return
     }
@@ -507,6 +517,22 @@ const QuestionPaperManagement = () => {
 
   return (
     <div className="space-y-6">
+      <PasswordConfirmModal
+        isOpen={isPasswordDeleteOpen}
+        title="Password Required"
+        message="Enter your password to delete this question paper."
+        confirmLabel="Verify & Continue"
+        onCancel={() => {
+          setIsPasswordDeleteOpen(false)
+          setPaperToDelete(null)
+        }}
+        onVerified={async () => {
+          const paper = paperToDelete
+          setIsPasswordDeleteOpen(false)
+          setPaperToDelete(null)
+          await executeDeletePaper(paper)
+        }}
+      />
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Question Papers</h1>

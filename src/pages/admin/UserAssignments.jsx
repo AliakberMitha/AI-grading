@@ -10,7 +10,6 @@ const UserAssignments = () => {
   const [users, setUsers] = useState([])
   const [classes, setClasses] = useState([])
   const [subjects, setSubjects] = useState([])
-  const [branches, setBranches] = useState([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -33,25 +32,33 @@ const UserAssignments = () => {
 
   const fetchLookups = async () => {
     try {
-      const [userRes, classRes, subjectRes, branchRes] = await Promise.all([
-        supabase.from('users').select('*').order('itsid'),
+      const [userRes, classRes, subjectRes] = await Promise.all([
+        supabase
+          .from('users')
+          .select(`id, itsid, email, branch_id, branches (id, name)`)
+          .order('itsid'),
         supabase.from('classes').select('*').order('name'),
-        supabase.from('subjects').select('*').order('name'),
-        supabase.from('branches').select('*').order('name')
+        supabase.from('subjects').select('*').order('name')
       ])
 
       if (userRes.error) throw userRes.error
       if (classRes.error) throw classRes.error
       if (subjectRes.error) throw subjectRes.error
-      if (branchRes.error) throw branchRes.error
 
       setUsers(userRes.data || [])
       setClasses(classRes.data || [])
       setSubjects(subjectRes.data || [])
-      setBranches(branchRes.data || [])
     } catch (error) {
       toast.error('Failed to load lookup data')
       console.error(error)
+    }
+  }
+
+  const resolveBranchForUser = (userId) => {
+    const u = users.find((user) => user.id === userId)
+    return {
+      branchId: u?.branch_id || null,
+      branchName: u?.branches?.name || '-'
     }
   }
 
@@ -62,10 +69,9 @@ const UserAssignments = () => {
         .from('user_assignments')
         .select(`
           *,
-          users (id, itsid, email),
+          users (id, itsid, email, branch_id, branches (id, name)),
           classes (id, name),
-          subjects (id, name),
-          branches (id, name)
+          subjects (id, name)
         `)
         .order('created_at', { ascending: false })
 
@@ -106,11 +112,12 @@ const UserAssignments = () => {
       return
     }
 
+    const { branchId } = resolveBranchForUser(formData.user_id)
     const payload = {
       user_id: formData.user_id,
       class_id: formData.class_id,
       subject_id: formData.subject_id,
-      branch_id: formData.branch_id || null,
+      branch_id: branchId,
       can_upload: formData.can_upload,
       can_grade: formData.can_grade,
       can_edit_marks: formData.can_edit_marks,
@@ -150,7 +157,7 @@ const UserAssignments = () => {
       user_id: assignment.user_id,
       class_id: assignment.class_id,
       subject_id: assignment.subject_id,
-      branch_id: assignment.branch_id || '',
+      branch_id: assignment.users?.branch_id || assignment.branch_id || '',
       can_upload: assignment.can_upload,
       can_grade: assignment.can_grade,
       can_edit_marks: assignment.can_edit_marks || false,
@@ -217,7 +224,7 @@ const UserAssignments = () => {
     {
       header: 'Branch',
       accessor: 'branch',
-      render: (row) => <span className="text-gray-600">{row.branches?.name || '-'}</span>
+      render: (row) => <span className="text-gray-600">{row.users?.branches?.name || '-'}</span>
     },
     {
       header: 'Permissions',
@@ -323,7 +330,15 @@ const UserAssignments = () => {
             <label className="block text-sm font-medium text-gray-700 mb-1">User *</label>
             <select
               value={formData.user_id}
-              onChange={(e) => setFormData({ ...formData, user_id: e.target.value })}
+              onChange={(e) => {
+                const userId = e.target.value
+                const { branchId } = resolveBranchForUser(userId)
+                setFormData({
+                  ...formData,
+                  user_id: userId,
+                  branch_id: branchId || ''
+                })
+              }}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
               <option value="">Select user</option>
@@ -370,18 +385,11 @@ const UserAssignments = () => {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Branch</label>
-            <select
-              value={formData.branch_id}
-              onChange={(e) => setFormData({ ...formData, branch_id: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="">Select branch</option>
-              {branches.map((branch) => (
-                <option key={branch.id} value={branch.id}>
-                  {branch.name}
-                </option>
-              ))}
-            </select>
+            <input
+              value={resolveBranchForUser(formData.user_id).branchName}
+              readOnly
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-700"
+            />
           </div>
 
           <div className="space-y-3">

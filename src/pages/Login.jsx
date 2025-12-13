@@ -81,7 +81,7 @@ const Login = () => {
           <div className="inline-flex items-center justify-center w-16 h-16 bg-white rounded-2xl shadow-lg mb-4">
             <GraduationCap size={36} className="text-blue-600" />
           </div>
-          <h1 className="text-3xl font-bold text-white">AI Grading System</h1>
+          <h1 className="text-3xl font-bold text-white">JHS AI Grading System</h1>
           <p className="text-blue-200 mt-2">Intelligent Answer Sheet Evaluation</p>
         </div>
 
